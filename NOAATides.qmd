@@ -1,0 +1,58 @@
+---
+title: "NOAA Tides and Currents EDA"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: load-libraries-download-data
+
+library(tidyverse)
+library(readr)
+library(date)
+library(lubridate)
+
+Beaufort <- read_csv("temp_data/Beaufort_NC_watertemperature.csv")
+Charleston <- read_csv("temp_data/Charleston_SC_watertemperature.csv")
+Hatteras <- read_csv("temp_data/Hatteras_NC_watertemperature.csv")
+VirginiaKey <- read_csv("temp_data/Virginia_Key_FL_watertemperature.csv")
+Wrightsville <- read_csv("temp_data/Wrightsville_Beach_NC_watertemperature.csv")
+MiddleMarsh <- read_csv("temp_data/Temperature_MM_10y.csv")
+Combined <- read_csv("temp_data/combined_water_temp.csv")
+
+```
+
+```{r}
+#| label: playing
+
+
+Combine_Converted <- Combined |> 
+  mutate(timestamp = parse_date_time(timestamp, 
+                                     orders = c("mdy HM",
+                                                "mdy HMS",
+                                                "mdy")),
+         year = year(timestamp),
+         month = month(timestamp),
+         day = day(timestamp),
+         hour = hour(timestamp)) #this fails to parse 7710 rows. idk why
+
+Combine_Converted |>
+  arrange(timestamp) |>
+  mutate(dt = timestamp - lag(timestamp)) |>
+  count(dt, sort = TRUE)
+
+#time-series-graph
+Combine_Converted |>
+  ggplot(aes(timestamp, temp_f), color = station_name) +
+  geom_line() +
+  facet_wrap(~ station_name, scales = "free_y") +
+  labs(title = "Raw time series")
+
+Combine_Converted |>
+  filter(station_name == "MiddleMarsh_NC") |>
+  arrange(timestamp)
+
+```
+
+```{r}
+```
