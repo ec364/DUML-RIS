@@ -25,7 +25,6 @@ Combined <- read_csv("temp_data/combined_water_temp.csv")
 ```{r}
 #| label: playing
 
-
 Combine_Converted <- Combined |> 
   mutate(timestamp = parse_date_time(timestamp, 
                                      orders = c("mdy HM",
@@ -36,6 +35,7 @@ Combine_Converted <- Combined |>
          day = day(timestamp),
          hour = hour(timestamp)) #this fails to parse 7710 rows. idk why
 
+#lag? idk chat told me to calculate this
 Combine_Converted |>
   arrange(timestamp) |>
   mutate(dt = timestamp - lag(timestamp)) |>
@@ -43,16 +43,40 @@ Combine_Converted |>
 
 #time-series-graph
 Combine_Converted |>
+  filter(station_name == c("MiddleMarsh_NC", "Beaufort_NC")) |>
   ggplot(aes(timestamp, temp_f), color = station_name) +
   geom_line() +
   facet_wrap(~ station_name, scales = "free_y") +
-  labs(title = "Raw time series")
+  labs(title = "Raw time series") 
 
-Combine_Converted |>
+
+#just Beaufort and MiddleMarsh
+MM_Beaufort <- Combine_Converted |>
+  filter(station_name == c("MiddleMarsh_NC", "Beaufort_NC")) 
+
+#whats the earliest recording in MM?
+MM_Beaufort |>
   filter(station_name == "MiddleMarsh_NC") |>
-  arrange(timestamp)
+  arrange(timestamp) #its 2017-01-29
+
+#latest recording in MM?
+#whats the earliest recording in MM?
+MM_Beaufort |>
+  filter(station_name == "MiddleMarsh_NC") |>
+  arrange(desc(timestamp)) #its 2025-04-21	
+
+#timeseries for 2017-2025
+MM_Beaufort |> 
+  filter(timestamp >= '2017-01-29')|>
+  filter(timestamp <= '2025-04-21') |>
+  ggplot(aes(timestamp, temp_f), color = station_name) +
+  geom_line() +
+  facet_grid(~ station_name, scales = "free_y") +
+  labs(title = "Raw time series") 
 
 ```
 
 ```{r}
+#label: calculating-autocor
+
 ```
