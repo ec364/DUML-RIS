@@ -11,6 +11,16 @@ library(tidyverse)
 library(readr)
 library(date)
 library(lubridate)
+library(broom)
+library(ggplot2); library(seacarb); # this has the seafet functions (sf_...)
+library(reshape2); library(plyr); library(dplyr);
+library(xts) #interactive plots
+library(RVAideMemoire)
+library(Rmisc)
+library(gridExtra)
+library(plyr)
+library(grid)
+library(PMCMRplus)
 
 Beaufort <- read_csv("temp_data/Beaufort_NC_watertemperature.csv")
 Charleston <- read_csv("temp_data/Charleston_SC_watertemperature.csv")
@@ -67,16 +77,172 @@ MM_Beaufort |>
 
 #timeseries for 2017-2025
 MM_Beaufort |> 
-  filter(timestamp >= '2017-01-29')|>
+  filter(timestamp >= '2017-01-29') |>
   filter(timestamp <= '2025-04-21') |>
-  ggplot(aes(timestamp, temp_f), color = station_name) +
+  ggplot(aes(timestamp, temp_c)) +
   geom_line() +
-  facet_grid(~ station_name, scales = "free_y") +
+  geom_hline(yintercept = 19.79466, colour = "blue", linetype ="dashed", linewidth = 1) +
+  facet_wrap(~ station_name, scales = "free_y") +
   labs(title = "Raw time series") 
+
+#timeperiod of interest 
+MM_Beaufort_Short <- MM_Beaufort |> 
+  filter(timestamp >= '2017-01-29')|>
+  filter(timestamp <= '2025-04-21')
+
+#summary stats for combined
+median(MM_Beaufort_Short$temp_c) #20
+mean(MM_Beaufort_Short$temp_c) #19.79466
+range(MM_Beaufort_Short$temp_c) #1.111111 31.000000
+
+#summary stats for MM
+MM_Beaufort_Short |>
+  filter(station_name == "MiddleMarsh_NC") |>
+  summarize(
+    mean = mean(temp_c), #19.79263
+    median = median(temp_c),#19.97858
+    range = range(temp_c) #1.996479 - 30.573901
+  )
+
+#summary stats for Beaufort_NC
+MM_Beaufort_Short |>
+  filter(station_name == "Beaufort_NC") |>
+  summarize(
+    mean = mean(temp_c), #19.79474	
+    median = median(temp_c),#20
+    range = range(temp_c) #1.111111 - 31.000000
+  )
+
+summary(MM_Beaufort_Short) 
+```
+
+```{r}
+#label: choosing-hour
+
+beaufort_hourly <- MM_Beaufort_Short |>
+  filter(station_name == "Beaufort_NC")
+
+middlemarsh_daily <- MM_Beaufort_Short |>
+  filter(station_name == "MiddleMarsh_NC") |>
+  distinct(timestamp, temp_c)
+
+#sample hours 
+candidate_hours <- c(0, 6, 12, 18)
+
+#extract one value per day at each hour
+beaufort_subsamples <- beaufort_hourly |>
+  filter(hour %in% candidate_hours) |>
+  select(timestamp, hour, temp_c)
+
+#combine
+comparison_data <- beaufort_subsamples %>%
+  inner_join(
+    middlemarsh_daily,
+    by = "timestamp",
+    suffix = c("_beaufort", "_middlemarsh")
+  )
+
+#correlation: for some reason it only grabed hour 0 so whatever
+results <- comparison_data |>
+  group_by(hour) %>%
+  summarise(
+    n = n(),
+    cor = cor(temp_c_beaufort, temp_c_middlemarsh, use = "complete.obs")
+  )
+
+#graph of cor
+ggplot(results, aes(x = factor(hour), y = cor)) +
+  geom_point(size = 3) +
+  labs(
+    x = "Assumed sampling hour",
+    y = "Correlation",
+    title = "Sensitivity to unknown daily sampling time"
+  )
+
+#linear regression
+lm_results <- comparison_data %>%
+  group_by(hour) %>%
+  do(tidy(lm(temp_c_middlemarsh ~ temp_c_beaufort, data = .)))
+
+#Midnight Measurements
+ MM_Beaufort_Short_Midnight <- MM_Beaufort_Short |>
+  filter(hour == "0")
+ 
+MM_Short_Midnight <- MM_Beaufort_Short_Midnight |>
+  filter(station_name == "MiddleMarsh_NC")
+
+Beaufort_Short_Midnight <- MM_Beaufort_Short_Midnight |>
+  filter(station_name == "Beaufort_NC")
 
 ```
 
 ```{r}
-#label: calculating-autocor
+#label: test-from-jw
 
+#Kolmogorov-Smirnov test to examine differences in the distribution of observed temperature values at each site
+#Asymptotic two-sample Kolmogorov-Smirnov test
+ks.test(MM_Short_Midnight$temp_c,Beaufort_Short_Midnight$temp_c) 
+#D = 0.04298, p-value = 0.1755
+#alternative hypothesis: two-sided
+
+##Permanova on temperature distributions
+perm.anova(temp_c ~ station_name, data = MM_Beaufort_Short_Midnight, nperm = 999)
+#Response: temp_c
+#999 permutations
+#             Sum Sq   Df Mean Sq F value Pr(>F)
+#station_name     25    1  25.029  0.5209  0.485
+#Residuals    126758 2638  48.051    
+
+#Hartley's maximum F-ratio test to examine differences in the variance of temperature at each site
+#hartleyTest(temp_c ~ station_name, data = MM_Beaufort_Short_Midnight)
+# this actually doesnt work
+
+density_plot <- ggplot(MM_Beaufort_Short_Midnight, 
+                       aes(x = temp_c, fill = station_name)) +
+  geom_density(alpha = 0.3, show.legend = TRUE) + 
+  labs(fill = "station_name", color = "station_name") +
+  scale_fill_manual("station_name", values = c("MM_Short_Midnight" = "blue", "Beaufort_Short_Midnight" = "red")) +
+  geom_vline(xintercept = mean(MM_Short_Midnight$temp_c), colour = "blue", linetype = "dashed", size = 1.3) +
+  geom_vline(xintercept = mean(Beaufort_Short_Midnight$temp_c), colour = "red", linetype = "dashed",  size = 1.3) +
+  xlim(0, 35) +
+  theme_bw(base_size = 20) 
+
+density_plot
+
+
+
+```
+
+```{r}
+#| label: auto-cor
+
+Beaufort.auto <- acf(Beaufort_Short_Midnight$temp_c, plot = FALSE)
+MM.auto <- acf(MM_Short_Midnight$temp_c, plot = FALSE)
+
+Beaufort.auto #I don't know how to interpret this
+MM.auto #I don't know how to interpret this
+
+Beaufort.auto <- as.data.frame(Beaufort.auto$acf[0:31])
+Beaufort.auto$Lag <- seq(from = 1, to = 31, by = 1)
+colnames(Beaufort.auto) <- c("Autocorr", "Lag")
+
+MM.auto <- as.data.frame(MM.auto$acf[0:32])
+MM.auto$Lag <- seq(from = 1, to = 32, by = 1)
+colnames(MM.auto) <- c("Autocorr", "Lag")
+
+Beaufort.auto$Location <- "Beaufort"
+MM.auto$Location <- "MM"
+
+all.auto <- rbind(Beaufort.auto, MM.auto)
+all.auto
+
+#plotting autocorrelation with hourly lag
+auto.hourly <- ggplot(all.auto, aes(x = Lag, y = Autocorr, shape = Location, colour = Location)) +
+  geom_point(size = 3)+
+  scale_shape_manual("Location", values = c("Beaufort" = 18, "MM" = 16)) +
+  scale_colour_manual("Location", values = c("Beaufort" = "blue", "MM" = "red")) +
+  ylab("temp Autocorrelation") +
+  xlab("Lag (hours)") +
+  theme_bw(base_size = 20)
+auto.hourly
 ```
