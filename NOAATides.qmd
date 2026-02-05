@@ -21,6 +21,7 @@ library(gridExtra)
 library(plyr)
 library(grid)
 library(PMCMRplus)
+library(plotly)
 
 Beaufort <- read_csv("temp_data/Beaufort_NC_watertemperature.csv")
 Charleston <- read_csv("temp_data/Charleston_SC_watertemperature.csv")
@@ -45,11 +46,7 @@ Combine_Converted <- Combined |>
          day = day(timestamp),
          hour = hour(timestamp)) #this fails to parse 7710 rows. idk why
 
-#lag? idk chat told me to calculate this
-Combine_Converted |>
-  arrange(timestamp) |>
-  mutate(dt = timestamp - lag(timestamp)) |>
-  count(dt, sort = TRUE)
+
 
 #time-series-graph
 Combine_Converted |>
@@ -211,6 +208,7 @@ density_plot
 
 
 
+
 ```
 
 ```{r}
@@ -236,7 +234,7 @@ MM.auto$Location <- "MM"
 all.auto <- rbind(Beaufort.auto, MM.auto)
 all.auto
 
-#plotting autocorrelation with hourly lag
+#plotting autocorrelation with hourly lag #wait is this hourly lag or daily lag?
 auto.hourly <- ggplot(all.auto, aes(x = Lag, y = Autocorr, shape = Location, colour = Location)) +
   geom_point(size = 3)+
   scale_shape_manual("Location", values = c("Beaufort" = 18, "MM" = 16)) +
@@ -245,4 +243,112 @@ auto.hourly <- ggplot(all.auto, aes(x = Lag, y = Autocorr, shape = Location, col
   xlab("Lag (hours)") +
   theme_bw(base_size = 20)
 auto.hourly
+```
+
+```{r}
+#| label: more-graphs
+
+#when are we above the mean temp?
+
+
+Beaufort_Short_Midnight |>
+  filter(temp_c > mean(temp_c)) |>
+  arrange(timestamp) |> 
+  summary() #april to nov
+
+MM_Short_Midnight |>
+  filter(temp_c > mean(temp_c)) |>
+  arrange(timestamp) |> 
+  summary() #april to nov
+
+MM_Beaufort_Short_Midnight <- MM_Beaufort_Short |>
+  filter(hour == "0")
+
+p1 <- ggplot(MM_Beaufort_Short_Midnight, 
+             aes(x = timestamp, y = temp_c, color = station_name)) +
+  geom_line(alpha = 0.8) +
+  scale_color_manual(values = c("Beaufort_NC" = "#00AFBB", "MiddleMarsh_NC" = "#E7B800")) +
+  theme_cowplot() +
+  annotate("text", 
+           x = min(MM_Beaufort_Short_Midnight$timestamp, na.rm = TRUE), 
+           y = -Inf,                                       
+           label = "", 
+           hjust = 0.05,                                  
+           vjust = -1,                                    # Nudge up
+           size = 3.5, 
+           fontface = "italic") +
+  labs(x = "Date", 
+       y = "Temperature (°C)",
+       color = "Location") +
+  theme(axis.title = element_text(size = 13), axis.text = element_text(size=11))
+
+ggplotly(p1) #time series with the cleaned data
+#2020/08/25 - 2022/11/17
+
+
+
+#investigating whats happening with this missing data
+#this is the original filtered for the time period of interest 
+p2 <- Combine_Converted |>
+  filter(station_name == "Beaufort_NC") |>  
+  filter(timestamp >= '2017-01-29') |>
+  filter(timestamp <= '2025-04-21') |>
+  ggplot(aes(x = timestamp, y = temp_c, color = station_name)) +
+  geom_line(alpha = 0.8) +
+  scale_color_manual(values = c("Beaufort_NC" = "#00AFBB", "MiddleMarsh_NC" = "#E7B800")) +
+  theme_cowplot() +
+  annotate("text", 
+           x = min(MM_Beaufort_Short_Midnight$timestamp, na.rm = TRUE), 
+           y = -Inf,                                       
+           label = "", 
+           hjust = 0.05,                                  
+           vjust = -1,                                    # Nudge up
+           size = 3.5, 
+           fontface = "italic") +
+  labs(x = "Date", 
+       y = "Temperature (°C)",
+       color = "Location") +
+  theme(axis.title = element_text(size = 13), axis.text = element_text(size=11))
+
+p2 <- ggplotly(p2)
+
+p2
+
+#the gap is because im filtering for an hour so hence its choppy
+
+```
+
+```{r}
+#daily weekly temperature range. im just gonna work with the midnight data until it doesnt work
+
+MM_Beaufort_Short_Midnight$week <- week(MM_Beaufort_Short_Midnight$timestamp)
+MM_Beaufort_Short_Midnight
+
+#graphing weekly 
+weekly_range <- MM_Beaufort_Short_Midnight |>
+  mutate(
+    iso_year = isoyear(timestamp),
+    iso_week = isoweek(timestamp)
+  ) |>
+  group_by(iso_year, iso_week, station_name) %>%
+  summarise(
+    week_start = min(timestamp),
+    temp_range = max(temp_c, na.rm = TRUE) -
+                 min(temp_c, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot(weekly_range,
+       aes(week_start, temp_range)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~ station_name, ncol = 1) +
+  theme_minimal() +
+    labs(x = "Week Start", 
+       y = "Weekly Temperature Range(°C)")
+```
+
+```{r}
+#| label: correlation
+
+
 ```
