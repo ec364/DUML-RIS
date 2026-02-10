@@ -22,6 +22,8 @@ library(plyr)
 library(grid)
 library(PMCMRplus)
 library(plotly)
+library(ggpubr)
+library(cowplot)
 
 Beaufort <- read_csv("temp_data/Beaufort_NC_watertemperature.csv")
 Charleston <- read_csv("temp_data/Charleston_SC_watertemperature.csv")
@@ -235,14 +237,14 @@ all.auto <- rbind(Beaufort.auto, MM.auto)
 all.auto
 
 #plotting autocorrelation with hourly lag #wait is this hourly lag or daily lag?
-auto.hourly <- ggplot(all.auto, aes(x = Lag, y = Autocorr, shape = Location, colour = Location)) +
+auto.daily <- ggplot(all.auto, aes(x = Lag, y = Autocorr, shape = Location, colour = Location)) +
   geom_point(size = 3)+
   scale_shape_manual("Location", values = c("Beaufort" = 18, "MM" = 16)) +
   scale_colour_manual("Location", values = c("Beaufort" = "blue", "MM" = "red")) +
   ylab("temp Autocorrelation") +
-  xlab("Lag (hours)") +
+  xlab("Lag (days)") +
   theme_bw(base_size = 20)
-auto.hourly
+auto.daily
 ```
 
 ```{r}
@@ -336,7 +338,8 @@ weekly_range <- MM_Beaufort_Short_Midnight |>
     temp_range = max(temp_c, na.rm = TRUE) -
                  min(temp_c, na.rm = TRUE),
     .groups = "drop"
-  )
+  ) |>
+  ungroup()
 
 ggplot(weekly_range,
        aes(week_start, temp_range)) +
@@ -349,6 +352,19 @@ ggplot(weekly_range,
 
 ```{r}
 #| label: correlation
+
+MM_Beaufort_Short_Midnight_wide <- MM_Beaufort_Short_Midnight |>
+  pivot_wider(names_from = station_name, values_from = temp_c) 
+
+p3 <- ggplot(MM_Beaufort_Short_Midnight_wide, aes(x = Beaufort_NC, y = MiddleMarsh_NC)) +
+  geom_point(alpha = 0.2, color = "steelblue") +
+  geom_smooth(method = "lm", color = "firebrick", size = 2, se = TRUE) +
+  stat_cor(aes(label = after_stat(r.label)), method = "spearman", 
+           label.x.npc = "left", label.y.npc = "top") +
+  labs(x = "Beaufort Temperature (°C)",
+       y = "MiddleMarsh Temperature (°C)") +
+  theme_half_open() + theme(axis.title = element_text(size = 13), axis.text = element_text(size=11))
+p3
 
 
 ```
