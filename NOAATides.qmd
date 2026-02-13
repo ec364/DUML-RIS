@@ -12,8 +12,11 @@ library(readr)
 library(date)
 library(lubridate)
 library(broom)
-library(ggplot2); library(seacarb); # this has the seafet functions (sf_...)
-library(reshape2); library(plyr); library(dplyr);
+library(ggplot2)
+library(seacarb); # this has the seafet functions (sf_...)
+library(reshape2)
+library(plyr)
+library(dplyr)
 library(xts) #interactive plots
 library(RVAideMemoire)
 library(Rmisc)
@@ -24,6 +27,8 @@ library(PMCMRplus)
 library(plotly)
 library(ggpubr)
 library(cowplot)
+library(timeDate)
+library(ggridges)
 
 Beaufort <- read_csv("temp_data/Beaufort_NC_watertemperature.csv")
 Charleston <- read_csv("temp_data/Charleston_SC_watertemperature.csv")
@@ -367,4 +372,132 @@ p3 <- ggplot(MM_Beaufort_Short_Midnight_wide, aes(x = Beaufort_NC, y = MiddleMar
 p3
 
 
+```
+
+```{r}
+#| label: summer-only 
+
+MM_Beaufort_Short_Midnight_Summer <- MM_Beaufort_Short_Midnight |>
+  filter(month == 6:9)
+
+```
+
+```{r}
+#| label: auto-cor-extended-year
+
+daily_complete_beaufort <- Beaufort_Short_Midnight |>
+  complete(timestamp = seq(min(timestamp), max(timestamp), by = "day")) |>
+  arrange(timestamp) #this adds NAs on days we do not have a temperature measurement for 
+
+daily_complete_MM <- MM_Short_Midnight |>
+  complete(timestamp = seq(min(timestamp), max(timestamp), by = "day")) |>
+  arrange(timestamp) #this adds NAs on days we do not have a temperature measurement for, looks like we do not have every other day of MM 
+
+acf(daily_complete_beaufort$temp_c, plot = F, lag.max = 365, na.action = na.pass)
+
+
+acf(MM_Short_Midnight$temp_c, plot = FALSE)
+ 
+ YdayBeaufort <- Beaufort_Short_Midnight |>
+   mutate(day_of_year = yday(timestamp))
+ 
+ Beaufort.auto.year <- acf(YdayBeaufort$temp_c, lag.max = 365, plot = F)
+ 
+ 
+#year with the original autocor with daily_complete
+ 
+Beaufort.auto2 <- acf(daily_complete_beaufort$temp_c, plot = FALSE, lag.max = 365, na.action = na.pass)
+MM.auto2 <- acf(daily_complete_MM$temp_c, plot = FALSE, lag.max = 365, na.action = na.pass)
+
+Beaufort.auto2 
+MM.auto2 
+
+Beaufort.auto2 <- as.data.frame(Beaufort.auto2$acf[1:366]) # start at 1
+Beaufort.auto2$Lag <- 0:365  # Lag from 0 to 365
+colnames(Beaufort.auto2) <- c("Autocorr", "Lag")
+
+MM.auto2 <- as.data.frame(MM.auto2$acf[1:366])
+MM.auto2$Lag <- 0:365
+colnames(MM.auto2) <- c("Autocorr", "Lag")
+
+# Add location
+Beaufort.auto2$Location <- "Beaufort"
+MM.auto2$Location <- "MM"
+
+# Combine
+all.auto2 <- rbind(Beaufort.auto2, MM.auto2)
+
+#plotting autocorrelation with daily lag?
+auto.daily.2 <- all.auto2 |>
+  ggplot(aes(x = Lag, y = Autocorr, shape = Location, colour = Location))  +
+  geom_point(size = 1) +
+  scale_shape_manual("Location", values = c("Beaufort" = 18, "MM" = 16)) +
+  scale_colour_manual("Location", values = c("Beaufort" = "blue", "MM" = "red")) +
+  ylab("temp Autocorrelation") +
+  xlab("Lag (days)") +
+  theme_bw(base_size = 20)
+
+auto.daily.2
+all.auto2 |>
+  filter(Location == "MM")
+ 
+
+```
+
+```{r}
+#| label: okay-whatever-making-plots
+
+#wait how many observations do they share in the summer?
+MM_Short_Midnight_Summer <- MM_Beaufort_Short_Midnight_Summer |>
+  filter(station_name == "MiddleMarsh_NC")
+
+Beaufort_Short_Midnight_Summer <- MM_Beaufort_Short_Midnight_Summer |>
+  filter(station_name == "Beaufort_NC")
+
+joint_dates_summer <- inner_join(MM_Short_Midnight_Summer, Beaufort_Short_Midnight_Summer, by = "timestamp")
+#bro only 10 rows
+
+#okay what about nonsummer
+
+joint_dates <- inner_join(MM_Short_Midnight, Beaufort_Short_Midnight, by = "timestamp")
+#okay theres 566
+
+#coor plot for the whole time at midnight
+corr_plot <- ggplot(joint_dates, aes(x = temp_c.x, y = temp_c.y)) +
+  geom_point(alpha = 0.2, color = "steelblue") +
+  geom_smooth(method = "lm", color = "firebrick", size = 2, se = TRUE) +
+  stat_cor(aes(label = after_stat(r.label)), method = "spearman", 
+           label.x.npc = "left", label.y.npc = "top") +
+  labs(x = "MiddleMarsh_NC Temperature (°C)",
+       y = "Beaufort_NC Temperature (°C)") +
+  theme_half_open() + theme(axis.title = element_text(size = 13), axis.text = element_text(size=11))
+
+corr_plot
+
+#coor plot for the whole time at midnight but in the summer
+corr_plot_summer <- ggplot(joint_dates_summer, aes(x = temp_c.x, y = temp_c.y)) +
+  geom_point(alpha = 0.2, color = "steelblue") +
+  geom_smooth(method = "lm", color = "firebrick", size = 2, se = TRUE) +
+  stat_cor(aes(label = after_stat(r.label)), method = "spearman", 
+           label.x.npc = "left", label.y.npc = "top") +
+  labs(x = "MiddleMarsh_NC Temperature (°C)",
+       y = "Beaufort_NC Temperature (°C)") +
+  theme_half_open() + theme(axis.title = element_text(size = 13), axis.text = element_text(size=11))
+
+corr_plot_summer
+
+```
+
+```{r}
+#| label: making-ridge-plots
+
+ridge_plot <- ggplot(MM_Beaufort_Short_Midnight, aes(temp_c, month, fill = station_name)) +
+  geom_density_ridges(alpha = 0.6) +
+  theme_pubr() + scale_fill_manual(values = c("Beaufort_NC" = "#00AFBB", "MiddleMarsh_NC" = "#E7B800")) +
+  theme_cowplot() +
+  labs(x = "Temperature (°C)", 
+       y = "Month") +
+  theme(legend.position = "none")
+
+ridge_plot
 ```
